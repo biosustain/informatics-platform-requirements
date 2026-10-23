@@ -1,0 +1,12 @@
+[
+  {
+    "id": "requirements",
+    "title": "Project Data Strategy and Requirements",
+    "description": "Capture a project's data strategy, platform fit and prioritised requirements for the Informatics Platform team.",
+    "file": "templates/requirements.md",
+    "version": "7ca7bc7e",
+    "sections": 6,
+    "questions": 19,
+    "order": 1
+  }
+]
