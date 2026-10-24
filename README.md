@@ -146,7 +146,7 @@ To add a template:
 ## Answer file format
 
 ```yaml
-# Project Data Strategy and Requirements
+# Project Data Requirements
 template:
   id: requirements
   title: Project Data Strategy and Requirements
