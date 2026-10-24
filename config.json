@@ -1,6 +1,9 @@
 {
   "title": "Informatics Platform · Requirements",
-  "organization": "DTU Biosustain",
-  "contactEmail": "",
+  "organization": "BRIGHT",
+  "contacts": [
+    { "name": "Ding He", "email": "dinghe@dtu.dk" },
+    { "name": "Lea Sommer", "email": "lemad@dtu.dk" }
+  ],
   "templatesIndex": "templates/index.json"
 }

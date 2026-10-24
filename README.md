@@ -1,6 +1,6 @@
 # Informatics Platform – Requirements Questionnaires
 
-A small static web app for collecting project requirements from clients of the DTU Biosustain
+A small static web app for collecting project requirements from clients of the BRIGHT
 Informatics Platform. Questionnaires are plain Markdown templates; clients answer them section by
 section, review their answers, and send the exported file to the team by email.
 
@@ -9,7 +9,10 @@ section, review their answers, and send the exported file to the team by email.
   file can be opened in the app again to view, edit or re-export.
 - **Multiple templates** – drop a `.md` file into [`templates/`](templates/) and it shows up on the
   start page.
-- **Send your answers** – downloads the YAML and points the client at `contactEmail`.
+- **Several questionnaires at once** – one template can be answered many times over, one per
+  project. Each is listed under **In progress** with its own progress and last-saved time.
+- **Send your answers** – downloads the YAML and lets the client pick which team member to email
+  it to.
 
 Everything runs in the browser. There is no server, no account and no network call beyond loading
 the site itself: answers never leave the client's machine until they choose to send the file.
@@ -56,20 +59,47 @@ The repository is `biosustain/informatics-platform-requirements`.
 > needs GitHub Enterprise Cloud. Since this repository holds no client answers, publishing it as a
 > **public** repository is the simpler option: free Actions minutes and free Pages.
 
-Set `contactEmail` in `config.json` before going live — it is the only way a client is told where
-to send their answers.
+Fill in `contacts` in `config.json` before going live — it is the only way a client is told where to
+send their answers:
+
+```json
+"contacts": [
+  { "name": "Ding He", "email": "dinghe@dtu.dk" },
+  { "name": "Lea Sommer", "email": "lemad@dtu.dk" }
+]
+```
+
+List one contact and the dialog names them directly; list several and the client picks whoever they
+are working with. A single `"contactEmail": "..."` is still honoured as a fallback.
 
 Share a direct link to one questionnaire with `?template=<id>`, for example
 `https://biosustain.github.io/informatics-platform-requirements/?template=requirements`.
 
+## Several questionnaires at once
+
+The start page lists everything **In progress**, newest first, and **Start** on a template card
+always begins a new one — so the same questionnaire can be filled in separately for Project A and
+Project B without the two colliding.
+
+Each is labelled automatically from its first answered question (usually the project name) and can
+be renamed from the `⋯` menu, on the start page or in the questionnaire toolbar. The same menu
+duplicates or deletes one. **Edit a copy**, on an opened answers file, always starts a new
+questionnaire rather than overwriting anything.
+
+Drafts live in the browser's `localStorage` under `ipreq.q.<id>`, one entry each. That means they
+are **per browser and per device**: they are not shared between people, do not follow you to another
+machine, and are lost if the browser's site data is cleared. Export a copy to keep anything that
+matters.
+
 ## Receiving answers
 
 The app never sends anything anywhere. When a client finishes, **Send your answers** downloads the
-YAML and offers a `mailto:` link to `contactEmail`; the client attaches that file to the email.
+YAML and offers a `mailto:` link per entry in `contacts`, pre-filled with the questionnaire's name;
+the client attaches that file to the email.
 
 To read an answers file, open the site and use **Open an answers file** on the start page. It
 renders the YAML or JSON against its template as a document, which you can export as Markdown, or
-load into your own draft with **Edit a copy** to refine together with the client.
+open as a new questionnaire of your own with **Edit a copy** to refine together with the client.
 
 If the template has changed since the answers were made, answers are matched by question key, and
 anything that no longer matches is listed under "Other answers", so nothing is lost.

@@ -6,16 +6,26 @@ import * as A from './answers.js';
 
 const DEFAULT_CONFIG = {
   title: 'Informatics Platform · Requirements',
-  organization: 'DTU Biosustain',
-  contactEmail: '',
+  organization: 'BRIGHT',
+  contactEmail: '',   // single address; `contacts` takes precedence when set
+  contacts: [],       // [{ name, email }] — the client picks one to send to
   templatesIndex: 'templates/index.json',
 };
+
+/** Config contacts, normalised; falls back to a lone `contactEmail`. */
+function contactList(cfg) {
+  const list = (Array.isArray(cfg.contacts) ? cfg.contacts : [])
+    .map((c) => (typeof c === 'string' ? { name: '', email: c } : { name: c.name || '', email: c.email || '' }))
+    .filter((c) => c.email);
+  if (list.length) return list;
+  return cfg.contactEmail ? [{ name: '', email: cfg.contactEmail }] : [];
+}
 
 const state = {
   config: DEFAULT_CONFIG,
   index: [],
-  templates: new Map(), // id -> Promise<template>
-  drafts: new Map(),    // id -> { answers, updatedAt }
+  templates: new Map(), // template id -> Promise<template>
+  drafts: new Map(),    // draft id -> { id, templateId, title, answers, createdAt, updatedAt, version }
   opened: null,         // { doc, tpl, name }
 };
 
@@ -45,6 +55,9 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
+  keys(prefix) {
+    try { return Object.keys(localStorage).filter((k) => k.startsWith(prefix)); } catch { return []; }
+  },
 };
 
 function download(name, text, type = 'text/plain') {
@@ -82,6 +95,8 @@ async function boot() {
     state.index = JSON.parse(await fetchText(state.config.templatesIndex));
   } catch { state.index = []; }
 
+  migrateLegacyDrafts();
+
   const q = new URLSearchParams(location.search).get('template');
   if (q && !location.hash) location.replace(`#/t/${encodeURIComponent(q)}`);
   window.addEventListener('hashchange', route);
@@ -104,10 +119,20 @@ async function route() {
   const [view, a, b] = parts;
   window.scrollTo(0, 0);
   try {
+    // #/t/<templateId>[/new] — resolve to one questionnaire, then swap the URL for it.
     if (view === 't' && a) {
-      const tpl = await getTemplate(a);
-      if (b === 'review') return renderDraftReview(tpl);
-      return renderForm(tpl, Math.max(0, parseInt(b || '0', 10) || 0));
+      await getTemplate(a); // fails loudly here if the template is unknown
+      const mine = listDrafts(a);
+      const target = b === 'new' || !mine.length ? createDraft(a) : (mine.length === 1 ? mine[0] : null);
+      if (!target) return location.replace('#/');
+      return location.replace(`#/q/${encodeURIComponent(target.id)}`);
+    }
+    if (view === 'q' && a) {
+      const draft = readDraft(a);
+      if (!draft) { toast('That questionnaire is no longer saved in this browser.', 'error'); return location.replace('#/'); }
+      const tpl = await getTemplate(draft.templateId);
+      if (b === 'review') return renderDraftReview(draft, tpl);
+      return renderForm(draft, tpl, Math.max(0, parseInt(b || '0', 10) || 0));
     }
     if (view === 'view') return state.opened ? renderOpened() : (location.hash = '#/');
     return renderHome();
@@ -125,29 +150,64 @@ function mount(...nodes) {
 }
 
 // ---------------------------------------------------------------- drafts
+//
+// One localStorage entry per in-progress questionnaire, so a template can be
+// answered several times over (one per project) without the drafts colliding.
 
-const draftKey = (id) => `ipreq.draft.${id}`;
+const PREFIX = 'ipreq.q.';
+const draftKey = (id) => PREFIX + id;
+const newId = (templateId) => `${templateId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-function getDraft(tpl) {
-  if (!state.drafts.has(tpl.id)) {
-    let d = null;
-    try { d = JSON.parse(store.get(draftKey(tpl.id)) || 'null'); } catch { d = null; }
-    state.drafts.set(tpl.id, d && d.answers ? d : { answers: {}, updatedAt: null });
-  }
-  return state.drafts.get(tpl.id);
-}
-function peekDraft(id) {
+function readDraft(id) {
   if (state.drafts.has(id)) return state.drafts.get(id);
-  try { return JSON.parse(store.get(draftKey(id)) || 'null'); } catch { return null; }
+  let d = null;
+  try { d = JSON.parse(store.get(draftKey(id)) || 'null'); } catch { d = null; }
+  if (!d || !d.answers || !d.templateId) return null;
+  state.drafts.set(id, d);
+  return d;
 }
+
+function listDrafts(templateId = null) {
+  const out = [];
+  for (const k of store.keys(PREFIX)) {
+    const d = readDraft(k.slice(PREFIX.length));
+    if (d && (!templateId || d.templateId === templateId)) out.push(d);
+  }
+  return out.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+}
+
+function createDraft(templateId, answers = {}) {
+  const now = new Date().toISOString();
+  const d = { id: newId(templateId), templateId, title: '', answers, createdAt: now, updatedAt: now };
+  state.drafts.set(d.id, d);
+  writeDraft(d);
+  return d;
+}
+
+function deleteDraft(id) {
+  // Drop any autosave still queued, or it would write the record straight back.
+  clearTimeout(saveTimer);
+  flushSave = null;
+  state.drafts.delete(id);
+  store.del(draftKey(id));
+}
+
+function duplicateDraft(d) {
+  const copy = createDraft(d.templateId, JSON.parse(JSON.stringify(d.answers)));
+  copy.title = d.title ? `${d.title} (copy)` : '';
+  writeDraft(copy);
+  return copy;
+}
+
+const writeDraft = (d) => store.set(draftKey(d.id), JSON.stringify(d));
 
 let saveTimer = null;
-function saveDraft(tpl, draft, immediate = false) {
+function saveDraft(draft, immediate = false, version = null) {
   draft.updatedAt = new Date().toISOString();
-  draft.version = tpl.version;
+  if (version) draft.version = version;
   clearTimeout(saveTimer);
   const doSave = () => {
-    const ok = store.set(draftKey(tpl.id), JSON.stringify(draft));
+    const ok = writeDraft(draft);
     const el = document.querySelector('[data-save-status]');
     if (el) el.textContent = ok ? `Saved in this browser · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Not saved (browser storage unavailable) — export to keep your answers';
   };
@@ -158,47 +218,115 @@ let flushSave = null;
 window.addEventListener('pagehide', () => flushSave?.());
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave?.(); });
 
-function clearDraft(tpl) {
-  state.drafts.set(tpl.id, { answers: {}, updatedAt: null });
-  store.del(draftKey(tpl.id));
+/** Drafts written by the single-draft-per-template build: `ipreq.draft.<templateId>`. */
+function migrateLegacyDrafts() {
+  for (const k of store.keys('ipreq.draft.')) {
+    const templateId = k.slice('ipreq.draft.'.length);
+    let old = null;
+    try { old = JSON.parse(store.get(k) || 'null'); } catch { old = null; }
+    if (old && old.answers) {
+      const d = createDraft(templateId, old.answers);
+      d.createdAt = old.updatedAt || d.createdAt;
+      d.updatedAt = old.updatedAt || d.updatedAt;
+      d.version = old.version;
+      writeDraft(d);
+    }
+    store.del(k);
+  }
 }
+
+/** The project name, taken from the first answered free-text question. */
+function firstAnswerText(tpl, answers) {
+  return tpl.sections
+    .flatMap((s) => s.slots.map((sl) => A.choiceText(A.getValue(answers, s, sl))))
+    .find((v) => typeof v === 'string' && v.trim()) || '';
+}
+
+const labelFor = (d, tpl) => d.title?.trim() || (tpl ? firstAnswerText(tpl, d.answers).trim() : '') || 'Untitled';
 const hasContent = (tpl, d) => d && A.progress(tpl, d.answers).some((p) => p.done > 0);
 
 // ---------------------------------------------------------------- home
 
-function renderHome() {
+async function renderHome() {
   const cfg = state.config;
+  const drafts = listDrafts();
+
+  // Progress needs the parsed template; getTemplate caches, so this is one load per template.
+  const tpls = new Map();
+  await Promise.all([...new Set(drafts.map((d) => d.templateId))].map(async (id) => {
+    tpls.set(id, await getTemplate(id).catch(() => null));
+  }));
+
+  const counts = {};
+  for (const d of drafts) counts[d.templateId] = (counts[d.templateId] || 0) + 1;
+
   const fileInput = h('input', { type: 'file', accept: '.yaml,.yml,.json', class: 'visually-hidden', id: 'open-file', onChange: (e) => openFile(e.target.files[0]) });
+
   const cards = state.index.length
-    ? state.index.map((t) => {
-      const d = peekDraft(t.id);
-      const started = d && d.updatedAt;
-      return h('article', { class: 'card tpl-card' },
-        h('div', { class: 'tpl-card-body' },
-          h('h2', {}, t.title),
-          t.description ? h('p', { class: 'muted' }, t.description) : null,
-          h('p', { class: 'tpl-meta' },
-            t.sections ? `${t.sections} sections` : null,
-            t.questions ? ` · ${t.questions} questions` : null,
-            started ? h('span', { class: 'badge' }, `Draft · ${fmtTime(d.updatedAt)}`) : null)),
-        h('div', { class: 'tpl-card-actions' },
-          h('a', { class: 'btn primary', href: `#/t/${encodeURIComponent(t.id)}` }, started ? 'Continue' : 'Start'),
-          started ? h('a', { class: 'btn ghost', href: `#/t/${encodeURIComponent(t.id)}/review` }, 'Review') : null));
-    })
+    ? state.index.map((t) => h('article', { class: 'card tpl-card' },
+      h('div', { class: 'tpl-card-body' },
+        h('h2', {}, t.title),
+        t.description ? h('p', { class: 'muted' }, t.description) : null,
+        h('p', { class: 'tpl-meta' },
+          t.sections ? `${t.sections} sections` : null,
+          t.questions ? ` · ${t.questions} questions` : null,
+          counts[t.id] ? h('span', { class: 'badge' }, `${counts[t.id]} in progress`) : null)),
+      h('div', { class: 'tpl-card-actions' },
+        h('a', { class: 'btn primary', href: `#/t/${encodeURIComponent(t.id)}/new` }, counts[t.id] ? 'Start another' : 'Start'))))
     : [h('div', { class: 'card' }, h('p', {}, 'No templates found. Add a Markdown file to ', h('code', {}, 'templates/'), ' and list it in ', h('code', {}, 'templates/index.json'), '.'))];
 
   mount(h('div', { class: 'page' },
     h('section', { class: 'hero' },
       h('p', { class: 'eyebrow' }, cfg.organization),
       h('h1', { tabindex: '-1' }, 'Tell us what your project needs'),
-      h('p', { class: 'lede' }, 'Pick a questionnaire and answer it section by section. Your answers are saved in this browser as you go, so you can stop and come back. When you are done, review your answers and send them to us, or export a copy as YAML or Markdown.')),
-    h('h2', { class: 'label-heading' }, 'Questionnaires'),
+      h('p', { class: 'lede' }, 'Pick a questionnaire and answer it section by section. Your answers are saved in this browser as you go, so you can stop and come back — and you can keep one going per project. When you are done, review your answers and send them to us, or export a copy as YAML or Markdown.')),
+    drafts.length ? h('h2', { class: 'label-heading' }, 'In progress') : null,
+    drafts.length ? h('div', { class: 'q-list' }, drafts.map((d) => draftRow(d, tpls.get(d.templateId)))) : null,
+    h('h2', { class: 'label-heading' }, drafts.length ? 'Start a new questionnaire' : 'Questionnaires'),
     h('div', { class: 'tpl-grid' }, cards),
     h('div', { class: 'card open-card' },
       h('div', {},
         h('h2', {}, 'Open an answers file'),
         h('p', { class: 'muted' }, 'View a YAML or JSON file exported from this app, then edit it or export it in another format.')),
       h('label', { class: 'btn', for: 'open-file' }, 'Choose file…'), fileInput)));
+}
+
+function draftRow(d, tpl) {
+  const base = `#/q/${encodeURIComponent(d.id)}`;
+  const prog = tpl ? A.progress(tpl, d.answers) : null;
+  const done = prog ? prog.reduce((a, p) => a + p.done, 0) : 0;
+  const total = prog ? prog.reduce((a, p) => a + p.total, 0) : 0;
+  const pct = total ? Math.round((100 * done) / total) : 0;
+  const tplTitle = tpl?.title || state.index.find((t) => t.id === d.templateId)?.title || d.templateId;
+
+  return h('article', { class: 'card q-item' },
+    h('div', { class: 'q-main' },
+      h('h3', { class: 'q-title' }, labelFor(d, tpl)),
+      h('p', { class: 'q-meta' },
+        tplTitle,
+        prog ? h('span', {}, ' · ', `${done} of ${total} answered`) : h('span', {}, ' · —'),
+        d.updatedAt ? h('span', { class: 'muted' }, ' · last saved ', fmtTime(d.updatedAt)) : null),
+      prog ? h('div', { class: 'bar' }, h('span', { style: `width:${pct}%` })) : null),
+    h('div', { class: 'q-actions' },
+      h('a', { class: 'btn primary', href: base }, 'Continue'),
+      h('a', { class: 'btn ghost', href: `${base}/review` }, 'Review'),
+      h('details', { class: 'menu' },
+        h('summary', { class: 'btn ghost icon', 'aria-label': `More actions for ${labelFor(d, tpl)}` }, '⋯'),
+        h('div', { class: 'menu-list' },
+          h('button', { class: 'menu-item', type: 'button', onClick: () => promptRename(d, tpl) }, 'Rename…'),
+          h('button', { class: 'menu-item', type: 'button', onClick: () => { duplicateDraft(d); toast('Duplicated'); route(); } }, 'Duplicate'),
+          h('button', {
+            class: 'menu-item danger', type: 'button',
+            onClick: () => { if (confirm(`Delete “${labelFor(d, tpl)}” and its answers from this browser?`)) { deleteDraft(d.id); toast('Deleted'); route(); } },
+          }, 'Delete')))));
+}
+
+function promptRename(d, tpl) {
+  const next = prompt('Name this questionnaire:', labelFor(d, tpl));
+  if (next === null) return;
+  d.title = next.trim();
+  saveDraft(d, true);
+  route();
 }
 
 async function openFile(file) {
@@ -213,16 +341,17 @@ async function openFile(file) {
 
 // ---------------------------------------------------------------- questionnaire
 
-function renderForm(tpl, idx) {
-  if (idx >= tpl.sections.length) { location.hash = `#/t/${encodeURIComponent(tpl.id)}/review`; return; }
-  const draft = getDraft(tpl);
+function renderForm(draft, tpl, idx) {
+  const base = `#/q/${encodeURIComponent(draft.id)}`;
+  if (idx >= tpl.sections.length) { location.hash = `${base}/review`; return; }
   const section = tpl.sections[idx];
-  const base = `#/t/${encodeURIComponent(tpl.id)}`;
 
   const onChange = (sectionKey, key, value) => {
     (draft.answers[sectionKey] ||= {})[key] = value;
-    saveDraft(tpl, draft);
+    saveDraft(draft, false, tpl.version);
     updateProgress(tpl, draft);
+    const t = document.querySelector('[data-draft-label]');
+    if (t) t.textContent = labelFor(draft, tpl);
   };
 
   const stepper = h('nav', { class: 'stepper', 'aria-label': 'Sections' },
@@ -233,22 +362,27 @@ function renderForm(tpl, idx) {
         h('span', { class: 'step-count', 'data-count': s.key }, ''))))),
     h('a', { href: `${base}/review`, class: 'step-review' }, 'Review & send →'));
 
-  const importInput = h('input', { type: 'file', accept: '.yaml,.yml,.json', class: 'visually-hidden', id: 'import-file', onChange: (e) => importInto(tpl, e.target.files[0]) });
+  const importInput = h('input', { type: 'file', accept: '.yaml,.yml,.json', class: 'visually-hidden', id: 'import-file', onChange: (e) => importInto(draft, tpl, e.target.files[0]) });
 
   const toolbar = h('div', { class: 'toolbar' },
     h('div', { class: 'toolbar-title' },
       h('a', { href: '#/', class: 'crumb' }, 'Questionnaires'), h('span', { class: 'crumb-sep' }, '/'),
-      h('strong', {}, tpl.title)),
+      h('strong', { 'data-draft-label': '' }, labelFor(draft, tpl)),
+      h('span', { class: 'crumb-tpl' }, tpl.title)),
     h('div', { class: 'toolbar-progress' }, h('div', { class: 'bar' }, h('span', { 'data-overall': '' })), h('span', { class: 'small muted', 'data-overall-text': '' })),
     h('div', { class: 'toolbar-actions' },
       h('a', { class: 'btn ghost', href: `${base}/review` }, 'Review'),
-      exportMenu(() => ({ tpl, answers: draft.answers, meta: {} })),
+      exportMenu(() => ({ tpl, draft, answers: draft.answers, meta: {} })),
       h('details', { class: 'menu' },
         h('summary', { class: 'btn ghost icon', 'aria-label': 'More actions' }, '⋯'),
         h('div', { class: 'menu-list' },
+          h('button', { class: 'menu-item', type: 'button', onClick: () => promptRename(draft, tpl) }, 'Rename…'),
           h('label', { for: 'import-file', class: 'menu-item' }, 'Load answers from file…'),
           h('button', { class: 'menu-item', type: 'button', onClick: () => copyLink(tpl) }, 'Copy link to this questionnaire'),
-          h('button', { class: 'menu-item danger', type: 'button', onClick: () => { if (confirm('Clear all answers for this questionnaire in this browser?')) { clearDraft(tpl); renderForm(tpl, 0); toast('Answers cleared'); } } }, 'Start over'))),
+          h('button', {
+            class: 'menu-item danger', type: 'button',
+            onClick: () => { if (confirm(`Delete “${labelFor(draft, tpl)}” and its answers from this browser?`)) { deleteDraft(draft.id); toast('Deleted'); location.hash = '#/'; } },
+          }, 'Delete this questionnaire'))),
       importInput));
 
   const body = h('div', { class: 'section-body' });
@@ -414,15 +548,14 @@ function gridEditor(section, grid, value, onValue) {
     }, '+ Add ', grid.idColumn >= 0 ? 'another' : 'row'));
 }
 
-async function importInto(tpl, file) {
+async function importInto(draft, tpl, file) {
   if (!file) return;
   try {
     const doc = A.parseDocument(await file.text());
     if (doc.template.id && doc.template.id !== tpl.id && !confirm(`This file was made with “${doc.template.title || doc.template.id}”, not “${tpl.title}”. Load matching answers anyway?`)) return;
-    const draft = getDraft(tpl);
-    if (hasContent(tpl, draft) && !confirm('Replace your current answers with the ones in this file?')) return;
+    if (hasContent(tpl, draft) && !confirm('Replace the answers in this questionnaire with the ones in this file?')) return;
     draft.answers = doc.answers;
-    saveDraft(tpl, draft, true);
+    saveDraft(draft, true, tpl.version);
     toast('Answers loaded');
     route();
   } catch (e) { toast(e.message, 'error'); }
@@ -437,9 +570,10 @@ function copyLink(tpl) {
 
 function exportMenu(get) {
   const fileBase = () => {
-    const { tpl, answers } = get();
-    const first = tpl.sections.flatMap((s) => s.slots.map((sl) => A.choiceText(A.getValue(answers, s, sl)))).find((v) => typeof v === 'string' && v.trim());
-    return [tpl.id, first ? slug(first).slice(0, 40) : null, new Date().toISOString().slice(0, 10)].filter(Boolean).join('-');
+    const { tpl, draft, answers } = get();
+    // A renamed questionnaire names its own file; otherwise fall back to the first answer.
+    const name = draft?.title?.trim() || firstAnswerText(tpl, answers);
+    return [tpl.id, name ? slug(name).slice(0, 40) : null, new Date().toISOString().slice(0, 10)].filter(Boolean).join('-');
   };
   const run = (fmt) => {
     const { tpl, answers, meta } = get();
@@ -463,20 +597,20 @@ document.addEventListener('click', (e) => {
 
 // ---------------------------------------------------------------- review / document view
 
-function renderDraftReview(tpl) {
-  const draft = getDraft(tpl);
-  const base = `#/t/${encodeURIComponent(tpl.id)}`;
+function renderDraftReview(draft, tpl) {
+  const base = `#/q/${encodeURIComponent(draft.id)}`;
   const prog = A.progress(tpl, draft.answers);
   const done = prog.reduce((a, p) => a + p.done, 0), total = prog.reduce((a, p) => a + p.total, 0);
   const actions = [
     h('a', { class: 'btn', href: base }, '← Keep editing'),
-    exportMenu(() => ({ tpl, answers: draft.answers, meta: {} })),
-    h('button', { class: 'btn primary', type: 'button', onClick: () => openSendDialog(tpl, draft) }, 'Send your answers'),
+    exportMenu(() => ({ tpl, draft, answers: draft.answers, meta: {} })),
+    h('button', { class: 'btn primary', type: 'button', onClick: () => openSendDialog(draft, tpl) }, 'Send your answers'),
   ];
   const banner = done < total
     ? h('p', { class: 'note' }, `${total - done} of ${total} questions are still open. You can send your answers anyway; open items stay visible as unresolved.`)
     : null;
-  mount(docView({ tpl, answers: draft.answers, title: tpl.title, status: 'Your answers', subtitle: `${done} of ${total} answered${draft.updatedAt ? ` · last saved ${fmtTime(draft.updatedAt)}` : ''}`, actions, banner, editBase: base }));
+  const subtitle = [tpl.title, `${done} of ${total} answered`, draft.updatedAt ? `last saved ${fmtTime(draft.updatedAt)}` : null].filter(Boolean).join(' · ');
+  mount(docView({ tpl, answers: draft.answers, title: labelFor(draft, tpl), status: 'Your answers', subtitle, actions, banner, editBase: base }));
 }
 
 function renderOpened() {
@@ -493,11 +627,11 @@ function renderOpened() {
     actions.push(h('button', {
       class: 'btn primary', type: 'button',
       onClick: () => {
-        const d = getDraft(tpl);
-        if (hasContent(tpl, d) && !confirm(`Replace your current draft of “${tpl.title}” with these answers?`)) return;
-        d.answers = JSON.parse(JSON.stringify(doc.answers));
-        saveDraft(tpl, d, true);
-        location.hash = `#/t/${encodeURIComponent(tpl.id)}`;
+        // Always a new questionnaire, so opening someone's file never touches your own.
+        const d = createDraft(tpl.id, JSON.parse(JSON.stringify(doc.answers)));
+        d.version = tpl.version;
+        saveDraft(d, true);
+        location.hash = `#/q/${encodeURIComponent(d.id)}`;
       },
     }, 'Edit a copy'));
   } else {
@@ -582,21 +716,33 @@ function genericValue(v) {
 
 // ---------------------------------------------------------------- send
 
-function openSendDialog(tpl, draft) {
+function openSendDialog(draft, tpl) {
   const cfg = state.config;
   const doc = () => A.buildDocument(tpl, draft.answers, {});
+  const base = [tpl.id, slug(labelFor(draft, tpl)).slice(0, 40), new Date().toISOString().slice(0, 10)].join('-');
   const dlg = h('dialog', { class: 'dialog', 'aria-labelledby': 'send-title' });
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0));
 
-  const mail = cfg.contactEmail ? `mailto:${cfg.contactEmail}?subject=${encodeURIComponent(`Requirements: ${tpl.title}`)}&body=${encodeURIComponent('Please find my answers attached.')}` : null;
+  const contacts = contactList(cfg);
+  const mail = (c) => `mailto:${c.email}?subject=${encodeURIComponent(`Requirements: ${labelFor(draft, tpl)}`)}&body=${encodeURIComponent('Please find my answers attached.')}`;
+
   dlg.append(h('div', { class: 'dialog-body' },
     h('h2', { id: 'send-title' }, 'Send your answers'),
-    h('p', {}, 'Download your answers as a file, then email it to the Informatics Platform team', cfg.contactEmail ? [' at ', h('a', { href: mail }, cfg.contactEmail)] : null, '.'),
+    contacts.length > 1
+      ? h('p', {}, 'Download your answers as a file, then email it to whoever you are working with:')
+      : h('p', {}, 'Download your answers as a file, then email it to the Informatics Platform team',
+        contacts.length ? [' at ', h('a', { href: mail(contacts[0]) }, contacts[0].name || contacts[0].email)] : null, '.'),
+    contacts.length > 1
+      ? h('ul', { class: 'contact-list' }, contacts.map((c) => h('li', {},
+        h('a', { href: mail(c) },
+          h('span', { class: 'contact-name' }, c.name || c.email),
+          c.name ? h('span', { class: 'muted small' }, c.email) : null))))
+      : null,
     h('p', { class: 'small muted' }, 'Keep the file — you can load it back into this questionnaire later with “Load answers from file”.'),
     h('div', { class: 'dialog-actions' },
       h('button', { class: 'btn', type: 'button', onClick: close }, 'Close'),
-      h('button', { class: 'btn primary', type: 'button', onClick: () => { download(`${tpl.id}-${new Date().toISOString().slice(0, 10)}.yaml`, A.toYAML(doc()), 'application/yaml'); } }, 'Download YAML'))));
+      h('button', { class: 'btn primary', type: 'button', onClick: () => { download(`${base}.yaml`, A.toYAML(doc()), 'application/yaml'); } }, 'Download YAML'))));
   document.body.append(dlg);
   dlg.showModal();
 }
