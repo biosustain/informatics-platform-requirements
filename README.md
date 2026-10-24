@@ -190,21 +190,21 @@ The split that matters for anyone reading or reusing this:
 
 - **Questionnaire content is human-authored.** The Markdown templates in [`templates/`](templates/)
   — the questions, the guidance, the structure of a requirements conversation — are the Informatics
-  Platform team's domain work, not generated.
-- **Application code is model-generated, human-reviewed.** Architecture choices (browser-local
+  Platform team's domain work, not generated within this web app implementation phase.
+- **Application code is model-generated.** Architecture choices (browser-local
   drafts, no backend, YAML as the canonical format, dropping the submission relay) were made by a
-  human and implemented by the model.
+  human (Ding He) and implemented by the model.
 
 Treat the code as you would any contribution you did not write yourself: read it before trusting
 it, and verify behaviour rather than assuming it. It is deliberately small, dependency-free and
 commented, so it can be read end to end in one sitting — about 1,300 lines of JavaScript across
 four modules.
 
-If you change it, you are under no obligation to keep using an AI to do so.
+If you change it, you are under no obligation to keep using an AI to do so ;)
 
 ## License
 
-[MIT](LICENSE) — © 2026 Technical University of Denmark (DTU), BRIGHT Informatics Platform.
+[MIT](LICENSE) — © 2026 BRIGHT Informatics Platform, Technical University of Denmark (DTU).
 
 Use it, fork it, adapt it for your own group; just keep the copyright and permission notice. The
 questionnaire templates in [`templates/`](templates/) are covered by the same license, so you are
