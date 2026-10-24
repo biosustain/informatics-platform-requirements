@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'client_submission/**'
-      - 'relay/**'
       - '**/README.md'
   workflow_dispatch:
 
@@ -34,7 +32,7 @@ jobs:
       - name: Build template index
         run: node scripts/build-template-index.mjs
 
-      - name: Assemble site (submissions are not published)
+      - name: Assemble site
         run: |
           mkdir _site
           cp -r index.html config.json css js vendor templates _site/

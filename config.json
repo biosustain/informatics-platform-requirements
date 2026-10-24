@@ -2,21 +2,5 @@
   "title": "Informatics Platform · Requirements",
   "organization": "DTU Biosustain",
   "contactEmail": "",
-  "templatesIndex": "templates/index.json",
-  "github": {
-    "owner": "biosustain",
-    "repo": "ip-requirements",
-    "branch": "main"
-  },
-  "submissions": {
-    "relayUrl": "",
-    "requireAccessCode": false,
-    "showInNav": true,
-    "folder": "client_submission",
-    "repo": {
-      "owner": "biosustain",
-      "repo": "ip-requirements",
-      "branch": "main"
-    }
-  }
+  "templatesIndex": "templates/index.json"
 }

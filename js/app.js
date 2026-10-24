@@ -1,7 +1,6 @@
 import { inline, esc, renderBlock, plain } from './markdown.js';
 import { loadTemplate, fetchText, rowSpecs, newRow, slug } from './template.js';
 import * as A from './answers.js';
-import * as GH from './github.js';
 
 // ---------------------------------------------------------------- config & state
 
@@ -10,23 +9,14 @@ const DEFAULT_CONFIG = {
   organization: 'DTU Biosustain',
   contactEmail: '',
   templatesIndex: 'templates/index.json',
-  github: { owner: 'biosustain', repo: 'ip-requirements', branch: 'main' },
-  submissions: {
-    relayUrl: '',
-    requireAccessCode: false,
-    showInNav: true,
-    folder: 'client_submission',
-    repo: null, // defaults to `github`
-  },
 };
 
 const state = {
   config: DEFAULT_CONFIG,
   index: [],
   templates: new Map(), // id -> Promise<template>
-  drafts: new Map(),    // id -> { answers, updatedAt, submitted }
-  opened: null,         // { doc, tpl, source: 'file'|'submission', path, name }
-  token: '',
+  drafts: new Map(),    // id -> { answers, updatedAt }
+  opened: null,         // { doc, tpl, name }
 };
 
 const app = document.getElementById('app');
@@ -55,8 +45,6 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
-  sget(k) { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
-  sset(k, v) { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch { /* ignore */ } },
 };
 
 function download(name, text, type = 'text/plain') {
@@ -85,19 +73,14 @@ function grow(el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeig
 async function boot() {
   try {
     const cfg = JSON.parse(await fetchText('config.json'));
-    state.config = { ...DEFAULT_CONFIG, ...cfg, github: { ...DEFAULT_CONFIG.github, ...cfg.github }, submissions: { ...DEFAULT_CONFIG.submissions, ...cfg.submissions } };
+    state.config = { ...DEFAULT_CONFIG, ...cfg };
   } catch { /* defaults */ }
-  state.config.submissions.repo ||= state.config.github;
-  state.token = store.sget('ipreq.token');
   document.querySelector('[data-brand-title]').textContent = state.config.title;
   document.querySelector('[data-org]').textContent = state.config.organization;
-  if (!state.config.submissions.showInNav) document.querySelector('[data-nav="submissions"]')?.remove();
 
   try {
     state.index = JSON.parse(await fetchText(state.config.templatesIndex));
-  } catch {
-    try { state.index = await GH.listTemplatesFromRepo(state.config); } catch { state.index = []; }
-  }
+  } catch { state.index = []; }
 
   const q = new URLSearchParams(location.search).get('template');
   if (q && !location.hash) location.replace(`#/t/${encodeURIComponent(q)}`);
@@ -119,7 +102,6 @@ async function route() {
   flushSave?.();
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   const [view, a, b] = parts;
-  document.querySelectorAll('[data-nav]').forEach((n) => n.classList.toggle('active', (n.dataset.nav === 'submissions') === (view === 'submissions')));
   window.scrollTo(0, 0);
   try {
     if (view === 't' && a) {
@@ -128,7 +110,6 @@ async function route() {
       return renderForm(tpl, Math.max(0, parseInt(b || '0', 10) || 0));
     }
     if (view === 'view') return state.opened ? renderOpened() : (location.hash = '#/');
-    if (view === 'submissions') return a ? renderSubmission(parts.slice(1).join('/')) : renderSubmissions();
     return renderHome();
   } catch (e) {
     console.error(e);
@@ -210,7 +191,7 @@ function renderHome() {
     h('section', { class: 'hero' },
       h('p', { class: 'eyebrow' }, cfg.organization),
       h('h1', { tabindex: '-1' }, 'Tell us what your project needs'),
-      h('p', { class: 'lede' }, 'Pick a questionnaire and answer it section by section. Your answers are saved in this browser as you go, so you can stop and come back. When you are done, review and submit, or export a copy as YAML or Markdown.')),
+      h('p', { class: 'lede' }, 'Pick a questionnaire and answer it section by section. Your answers are saved in this browser as you go, so you can stop and come back. When you are done, review your answers and send them to us, or export a copy as YAML or Markdown.')),
     h('h2', { class: 'label-heading' }, 'Questionnaires'),
     h('div', { class: 'tpl-grid' }, cards),
     h('div', { class: 'card open-card' },
@@ -225,7 +206,7 @@ async function openFile(file) {
   try {
     const doc = A.parseDocument(await file.text());
     const tpl = doc.template.id ? await getTemplate(doc.template.id).catch(() => null) : null;
-    state.opened = { doc, tpl, source: 'file', name: file.name };
+    state.opened = { doc, tpl, name: file.name };
     if (location.hash === '#/view') renderOpened(); else location.hash = '#/view';
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -250,7 +231,7 @@ function renderForm(tpl, idx) {
         h('span', { class: 'step-num' }, String(i + 1)),
         h('span', { class: 'step-title' }, s.title),
         h('span', { class: 'step-count', 'data-count': s.key }, ''))))),
-    h('a', { href: `${base}/review`, class: 'step-review' }, 'Review & submit →'));
+    h('a', { href: `${base}/review`, class: 'step-review' }, 'Review & send →'));
 
   const importInput = h('input', { type: 'file', accept: '.yaml,.yml,.json', class: 'visually-hidden', id: 'import-file', onChange: (e) => importInto(tpl, e.target.files[0]) });
 
@@ -279,7 +260,7 @@ function renderForm(tpl, idx) {
     idx > 0 ? h('a', { class: 'btn', href: `${base}/${idx - 1}` }, '← ', tpl.sections[idx - 1].title) : h('span'),
     idx < tpl.sections.length - 1
       ? h('a', { class: 'btn primary', href: `${base}/${idx + 1}` }, tpl.sections[idx + 1].title, ' →')
-      : h('a', { class: 'btn primary', href: `${base}/review` }, 'Review & submit →'));
+      : h('a', { class: 'btn primary', href: `${base}/review` }, 'Review & send →'));
 
   mount(toolbar, h('div', { class: 'page form-layout' },
     h('aside', {}, stepper),
@@ -487,28 +468,25 @@ function renderDraftReview(tpl) {
   const base = `#/t/${encodeURIComponent(tpl.id)}`;
   const prog = A.progress(tpl, draft.answers);
   const done = prog.reduce((a, p) => a + p.done, 0), total = prog.reduce((a, p) => a + p.total, 0);
-  const sub = draft.submitted;
   const actions = [
     h('a', { class: 'btn', href: base }, '← Keep editing'),
     exportMenu(() => ({ tpl, answers: draft.answers, meta: {} })),
-    h('button', { class: 'btn primary', type: 'button', onClick: () => openSubmitDialog(tpl, draft) }, sub ? 'Submit again' : 'Submit'),
+    h('button', { class: 'btn primary', type: 'button', onClick: () => openSendDialog(tpl, draft) }, 'Send your answers'),
   ];
-  const banner = sub
-    ? h('div', { class: 'card success' },
-      h('strong', {}, 'Submitted ', fmtTime(sub.at)), sub.path ? h('span', { class: 'muted' }, ' · ', h('code', {}, sub.path)) : null,
-      sub.path ? h('a', { class: 'btn small', href: `#/submissions/${sub.path.split('/').map(encodeURIComponent).join('/')}` }, 'View submission') : null)
-    : (done < total ? h('p', { class: 'note' }, `${total - done} of ${total} questions are still open. You can submit anyway; open items stay visible as unresolved.`) : null);
+  const banner = done < total
+    ? h('p', { class: 'note' }, `${total - done} of ${total} questions are still open. You can send your answers anyway; open items stay visible as unresolved.`)
+    : null;
   mount(docView({ tpl, answers: draft.answers, title: tpl.title, status: 'Your answers', subtitle: `${done} of ${total} answered${draft.updatedAt ? ` · last saved ${fmtTime(draft.updatedAt)}` : ''}`, actions, banner, editBase: base }));
 }
 
 function renderOpened() {
-  const { doc, tpl, source, path, name } = state.opened;
+  const { doc, tpl, name } = state.opened;
   const meta = doc.meta || {};
   const who = meta.submitted_by ? [meta.submitted_by.name, meta.submitted_by.email].filter(Boolean).join(' · ') : '';
   const when = meta.submitted_at || meta.exported_at;
-  const subtitle = [who && `From ${who}`, when && fmtTime(when), source === 'file' ? name : null].filter(Boolean).join(' · ');
+  const subtitle = [who && `From ${who}`, when && fmtTime(when), name].filter(Boolean).join(' · ');
   const actions = [
-    h('a', { class: 'btn', href: source === 'submission' ? '#/submissions' : '#/' }, '← Back'),
+    h('a', { class: 'btn', href: '#/' }, '← Back'),
   ];
   if (tpl) {
     actions.push(exportMenu(() => ({ tpl, answers: doc.answers, meta })));
@@ -517,23 +495,22 @@ function renderOpened() {
       onClick: () => {
         const d = getDraft(tpl);
         if (hasContent(tpl, d) && !confirm(`Replace your current draft of “${tpl.title}” with these answers?`)) return;
-        d.answers = JSON.parse(JSON.stringify(doc.answers)); delete d.submitted;
+        d.answers = JSON.parse(JSON.stringify(doc.answers));
         saveDraft(tpl, d, true);
         location.hash = `#/t/${encodeURIComponent(tpl.id)}`;
       },
     }, 'Edit a copy'));
   } else {
-    actions.push(h('button', { class: 'btn', type: 'button', onClick: () => download(name || path.split('/').pop(), A.toYAML(doc)) }, 'Download'));
+    actions.push(h('button', { class: 'btn', type: 'button', onClick: () => download(name, A.toYAML(doc)) }, 'Download'));
   }
-  if (source === 'submission' && path) actions.push(h('a', { class: 'btn ghost', href: GH.submissionUrl(state.config, path), target: '_blank', rel: 'noopener' }, 'On GitHub ↗'));
 
   let banner = null;
   if (!tpl) banner = h('p', { class: 'note' }, `The template “${doc.template.id || 'unknown'}” is not available here, so answers are shown as recorded.`);
   else if (doc.template.version && doc.template.version !== tpl.version) banner = h('p', { class: 'note' }, 'These answers were made with an earlier version of the template. Answers are matched by question; anything that no longer matches is listed at the end.');
 
   mount(tpl
-    ? docView({ tpl, answers: doc.answers, title: doc.template.title || tpl.title, status: source === 'submission' ? 'Submission' : 'Answers file', subtitle, actions, banner })
-    : h('div', { class: 'page narrow doc' }, docHeader(doc.template.title || 'Answers', source === 'submission' ? 'Submission' : 'Answers file', subtitle, actions), banner, genericValue(doc.answers)));
+    ? docView({ tpl, answers: doc.answers, title: doc.template.title || tpl.title, status: 'Answers file', subtitle, actions, banner })
+    : h('div', { class: 'page narrow doc' }, docHeader(doc.template.title || 'Answers', 'Answers file', subtitle, actions), banner, genericValue(doc.answers)));
 }
 
 function docHeader(title, status, subtitle, actions) {
@@ -603,125 +580,25 @@ function genericValue(v) {
   return valueNode(v);
 }
 
-// ---------------------------------------------------------------- submit
+// ---------------------------------------------------------------- send
 
-function openSubmitDialog(tpl, draft) {
+function openSendDialog(tpl, draft) {
   const cfg = state.config;
-  const sub = cfg.submissions;
   const doc = () => A.buildDocument(tpl, draft.answers, {});
-  const dlg = h('dialog', { class: 'dialog', 'aria-labelledby': 'submit-title' });
+  const dlg = h('dialog', { class: 'dialog', 'aria-labelledby': 'send-title' });
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.addEventListener('cancel', () => setTimeout(() => dlg.remove(), 0));
 
-  if (!sub.relayUrl) {
-    const mail = cfg.contactEmail ? `mailto:${cfg.contactEmail}?subject=${encodeURIComponent(`Requirements: ${tpl.title}`)}&body=${encodeURIComponent('Please find my answers attached.')}` : null;
-    dlg.append(h('div', { class: 'dialog-body' },
-      h('h2', { id: 'submit-title' }, 'Send your answers'),
-      h('p', {}, 'Online submission is not set up for this site yet. Download your answers and send the file to the Informatics Platform team', cfg.contactEmail ? [' at ', h('a', { href: mail }, cfg.contactEmail)] : null, '.'),
-      h('div', { class: 'dialog-actions' },
-        h('button', { class: 'btn', type: 'button', onClick: close }, 'Close'),
-        h('button', { class: 'btn primary', type: 'button', onClick: () => { download(`${tpl.id}-${new Date().toISOString().slice(0, 10)}.yaml`, A.toYAML(doc()), 'application/yaml'); } }, 'Download YAML'))));
-    document.body.append(dlg); dlg.showModal(); return;
-  }
-
-  const saved = (() => { try { return JSON.parse(store.get('ipreq.submitter') || '{}'); } catch { return {}; } })();
-  const err = h('p', { class: 'form-error', role: 'alert' });
-  const form = h('form', { class: 'dialog-body', method: 'dialog' },
-    h('h2', { id: 'submit-title' }, 'Submit your answers'),
-    h('p', { class: 'muted' }, `Your answers to “${tpl.title}” will be sent to the Informatics Platform team and stored in their GitHub repository.`),
-    h('div', { class: 'field' }, h('label', { class: 'field-label', for: 's-name' }, 'Your name'), h('input', { class: 'input', id: 's-name', name: 'name', required: true, autocomplete: 'name', value: saved.name || '' })),
-    h('div', { class: 'field' }, h('label', { class: 'field-label', for: 's-email' }, 'Email'), h('input', { class: 'input', id: 's-email', name: 'email', type: 'email', required: true, autocomplete: 'email', value: saved.email || '' })),
-    sub.requireAccessCode ? h('div', { class: 'field' }, h('label', { class: 'field-label', for: 's-code' }, 'Access code'), h('input', { class: 'input', id: 's-code', name: 'code', required: true, autocomplete: 'off' }), h('p', { class: 'small muted' }, 'You received this code from the Informatics Platform team.')) : null,
-    h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', {}, 'Website', h('input', { name: 'website', tabindex: '-1', autocomplete: 'off' }))),
-    err,
+  const mail = cfg.contactEmail ? `mailto:${cfg.contactEmail}?subject=${encodeURIComponent(`Requirements: ${tpl.title}`)}&body=${encodeURIComponent('Please find my answers attached.')}` : null;
+  dlg.append(h('div', { class: 'dialog-body' },
+    h('h2', { id: 'send-title' }, 'Send your answers'),
+    h('p', {}, 'Download your answers as a file, then email it to the Informatics Platform team', cfg.contactEmail ? [' at ', h('a', { href: mail }, cfg.contactEmail)] : null, '.'),
+    h('p', { class: 'small muted' }, 'Keep the file — you can load it back into this questionnaire later with “Load answers from file”.'),
     h('div', { class: 'dialog-actions' },
-      h('button', { class: 'btn', type: 'button', onClick: close }, 'Cancel'),
-      h('button', { class: 'btn primary', type: 'submit' }, 'Submit')));
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const submitter = { name: String(fd.get('name')).trim(), email: String(fd.get('email')).trim() };
-    store.set('ipreq.submitter', JSON.stringify(submitter));
-    const at = new Date().toISOString();
-    const d = A.buildDocument(tpl, draft.answers, { submitted_at: at, submitted_by: submitter });
-    const btn = form.querySelector('[type=submit]');
-    btn.disabled = true; btn.textContent = 'Submitting…'; err.textContent = '';
-    try {
-      const firstText = tpl.sections.flatMap((s) => s.slots.filter((x) => x.kind === 'text').map((x) => A.getValue(draft.answers, s, x))).find((v) => String(v).trim()) || '';
-      const res = await GH.submit(cfg, {
-        templateId: tpl.id, templateTitle: tpl.title, slugHint: slug(firstText).slice(0, 40),
-        content: A.toYAML(d), submitter, accessCode: fd.get('code') || '', website: fd.get('website') || '',
-      });
-      draft.submitted = { at, path: res.path || '' };
-      saveDraft(tpl, draft, true);
-      close();
-      toast('Submitted — thank you!', 'success');
-      renderDraftReview(tpl);
-    } catch (ex) {
-      err.textContent = ex.message;
-      btn.disabled = false; btn.textContent = 'Submit';
-    }
-  });
-  dlg.append(form);
+      h('button', { class: 'btn', type: 'button', onClick: close }, 'Close'),
+      h('button', { class: 'btn primary', type: 'button', onClick: () => { download(`${tpl.id}-${new Date().toISOString().slice(0, 10)}.yaml`, A.toYAML(doc()), 'application/yaml'); } }, 'Download YAML'))));
   document.body.append(dlg);
   dlg.showModal();
-}
-
-// ---------------------------------------------------------------- submissions (staff)
-
-async function renderSubmissions() {
-  const cfg = state.config;
-  const { owner, repo } = cfg.submissions.repo;
-  const list = h('div', { class: 'sub-list' }, h('p', { class: 'muted' }, 'Loading…'));
-  const tokenInput = h('input', { class: 'input', type: 'password', id: 'gh-token', placeholder: 'github_pat_…', value: state.token, autocomplete: 'off' });
-  const fileInput = h('input', { type: 'file', accept: '.yaml,.yml,.json', class: 'visually-hidden', id: 'open-file-2', onChange: (e) => openFile(e.target.files[0]) });
-
-  mount(h('div', { class: 'page narrow' },
-    h('header', { class: 'doc-head' },
-      h('div', {}, h('p', { class: 'eyebrow' }, 'Informatics Platform'), h('h1', { tabindex: '-1' }, 'Submissions'),
-        h('p', { class: 'muted small' }, 'Files in ', h('code', {}, `${owner}/${repo}/${cfg.submissions.folder}`))),
-      h('div', { class: 'doc-actions' },
-        h('button', { class: 'btn', type: 'button', onClick: () => load() }, 'Refresh'),
-        h('label', { class: 'btn ghost', for: 'open-file-2' }, 'Open local file…'), fileInput)),
-    list,
-    h('details', { class: 'card token-card' },
-      h('summary', {}, state.token ? 'GitHub token set for this tab' : 'Private repository? Add a read token'),
-      h('p', { class: 'small muted' }, 'Use a fine-grained token with read-only “Contents” access to the submissions repository. It is kept only for this browser tab.'),
-      h('div', { class: 'token-row' }, tokenInput,
-        h('button', { class: 'btn', type: 'button', onClick: () => { state.token = tokenInput.value.trim(); store.sset('ipreq.token', state.token); load(); } }, 'Use token'),
-        state.token ? h('button', { class: 'btn ghost', type: 'button', onClick: () => { state.token = ''; tokenInput.value = ''; store.sset('ipreq.token', ''); load(); } }, 'Forget') : null))));
-
-  async function load() {
-    list.replaceChildren(h('p', { class: 'muted' }, 'Loading…'));
-    try {
-      const items = await GH.listSubmissions(cfg, state.token);
-      if (!items.length) { list.replaceChildren(h('div', { class: 'card' }, h('p', { class: 'muted' }, 'No submissions yet.'))); return; }
-      const groups = {};
-      for (const it of items) (groups[it.group || '—'] ||= []).push(it);
-      list.replaceChildren(...Object.entries(groups).map(([g, arr]) => {
-        const t = state.index.find((x) => x.id === g);
-        return h('section', { class: 'sub-group' },
-          h('h2', { class: 'label-heading' }, t ? t.title : g, h('span', { class: 'count' }, ` ${arr.length}`)),
-          h('ul', { class: 'card sub-items' }, arr.map((it) => h('li', {},
-            h('a', { href: `#/submissions/${it.path.split('/').map(encodeURIComponent).join('/')}` },
-              h('span', { class: 'sub-name' }, it.name.replace(/\.(ya?ml|json)$/i, '').replace(/^\d{4}-\d{2}-\d{2}(T\d{4,6}Z?)?-?/, '') || it.name),
-              h('span', { class: 'muted small' }, it.date))))));
-      }));
-    } catch (e) {
-      list.replaceChildren(h('div', { class: 'card error' }, h('p', {}, e.message)));
-    }
-  }
-  load();
-}
-
-async function renderSubmission(path) {
-  mount(h('div', { class: 'page narrow' }, h('p', { class: 'muted' }, 'Loading submission…')));
-  const text = await GH.fetchSubmission(state.config, path, state.token);
-  const doc = A.parseDocument(text);
-  const tpl = doc.template.id ? await getTemplate(doc.template.id).catch(() => null) : null;
-  state.opened = { doc, tpl, source: 'submission', path, name: path.split('/').pop() };
-  renderOpened();
 }
 
 boot();
