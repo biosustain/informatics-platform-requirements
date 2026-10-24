@@ -20,6 +20,9 @@ the site itself: answers never leave the client's machine until they choose to s
 No build step and no framework: HTML, CSS and ES modules, plus a vendored copy of
 [js-yaml](https://github.com/nodeca/js-yaml) (MIT).
 
+The application code in this repository was written by an AI model under human direction — see
+[How this app was built](#how-this-app-was-built).
+
 ## Repository layout
 
 ```
@@ -33,6 +36,7 @@ config.json                  site settings (title, organisation, contact email)
 templates/                   questionnaire templates (*.md) + generated index.json
 scripts/build-template-index.mjs   regenerates templates/index.json
 .github/workflows/pages.yml  deploys the site to GitHub Pages
+LICENSE                      MIT
 ```
 
 ## Run locally
@@ -171,3 +175,41 @@ answers:
 ```
 
 Unanswered questions are exported as empty strings, so open items stay visible.
+
+## How this app was built
+
+This repository is openly an AI-assisted build, and it is worth being precise about who did what.
+
+**Ding He** (<dinghe@dtu.dk>) directed the work: set the requirements, made the design decisions,
+reviewed the output and decided what shipped. **Claude Opus 5** (model id `claude-opus-5`), running
+in [Claude Code](https://claude.com/claude-code), wrote the application code — the HTML, CSS and
+JavaScript under `index.html`, `css/` and `js/`, the build script and the Pages workflow — across a
+short series of sessions in October 2026.
+
+The split that matters for anyone reading or reusing this:
+
+- **Questionnaire content is human-authored.** The Markdown templates in [`templates/`](templates/)
+  — the questions, the guidance, the structure of a requirements conversation — are the Informatics
+  Platform team's domain work, not generated.
+- **Application code is model-generated, human-reviewed.** Architecture choices (browser-local
+  drafts, no backend, YAML as the canonical format, dropping the submission relay) were made by a
+  human and implemented by the model.
+
+Treat the code as you would any contribution you did not write yourself: read it before trusting
+it, and verify behaviour rather than assuming it. It is deliberately small, dependency-free and
+commented, so it can be read end to end in one sitting — about 1,300 lines of JavaScript across
+four modules.
+
+If you change it, you are under no obligation to keep using an AI to do so.
+
+## License
+
+[MIT](LICENSE) — © 2026 Technical University of Denmark (DTU), BRIGHT Informatics Platform.
+
+Use it, fork it, adapt it for your own group; just keep the copyright and permission notice. The
+questionnaire templates in [`templates/`](templates/) are covered by the same license, so you are
+free to reuse and adapt the questions as well as the code.
+
+The one piece of third-party code is [js-yaml](https://github.com/nodeca/js-yaml) 4.2.0, vendored
+at [`vendor/js-yaml.mjs`](vendor/js-yaml.mjs) and also MIT; its notice is kept alongside it in
+[`vendor/js-yaml.LICENSE`](vendor/js-yaml.LICENSE) and must stay there in any redistribution.
