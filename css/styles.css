@@ -11,6 +11,7 @@
   --accent-ink: #ffffff;
   --accent-soft: #f6e6e4;
   --focus: #2f5fd0;
+  --mark-plate: transparent;
   --ok: #2f7d4f;
   --ok-soft: #e5f2ea;
   --warn-soft: #fbf3df;
@@ -26,14 +27,14 @@
   :root:not([data-theme="light"]) {
     --bg: #16171a; --surface: #1f2024; --surface-2: #26282d; --ink: #ecebe8; --ink-2: #c4c3bf; --muted: #9a9ca3;
     --line: #33353b; --line-strong: #474a52; --accent: #e0574f; --accent-ink: #1b0e0d; --accent-soft: #3a2422;
-    --focus: #8fb0ff; --ok: #6fcf97; --ok-soft: #1f3328; --warn-soft: #332c1b; --warn-line: #5a4b25; --error: #ff8a80;
+    --mark-plate: #f2f1ee; --focus: #8fb0ff; --ok: #6fcf97; --ok-soft: #1f3328; --warn-soft: #332c1b; --warn-line: #5a4b25; --error: #ff8a80;
     --shadow: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #16171a; --surface: #1f2024; --surface-2: #26282d; --ink: #ecebe8; --ink-2: #c4c3bf; --muted: #9a9ca3;
   --line: #33353b; --line-strong: #474a52; --accent: #e0574f; --accent-ink: #1b0e0d; --accent-soft: #3a2422;
-  --focus: #8fb0ff; --ok: #6fcf97; --ok-soft: #1f3328; --warn-soft: #332c1b; --warn-line: #5a4b25; --error: #ff8a80;
+  --mark-plate: #f2f1ee; --focus: #8fb0ff; --ok: #6fcf97; --ok-soft: #1f3328; --warn-soft: #332c1b; --warn-line: #5a4b25; --error: #ff8a80;
   --shadow: none; color-scheme: dark;
 }
 
@@ -57,8 +58,8 @@ h1:focus { outline: none; }
 .site-header { background: var(--surface); border-bottom: 1px solid var(--line); }
 .site-header-inner { max-width: 1180px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); min-width: 0; }
-.brand-mark { width: 30px; height: 30px; border-radius: 7px; background: var(--accent); flex: none; position: relative; }
-.brand-mark::after { content: ""; position: absolute; inset: 9px 7px; border-top: 2.5px solid var(--accent-ink); border-bottom: 2.5px solid var(--accent-ink); }
+.brand-mark { width: 30px; height: 30px; flex: none; border-radius: 50%; background-color: var(--mark-plate);
+  background-image: url("../assets/bright-mark.png"); background-size: contain; background-position: center; background-repeat: no-repeat; }
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand-title { font-weight: 650; font-size: .98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand-org { font-size: .78rem; color: var(--muted); }

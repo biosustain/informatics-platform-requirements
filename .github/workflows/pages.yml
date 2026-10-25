@@ -35,7 +35,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir _site
-          cp -r index.html config.json css js vendor templates _site/
+          cp -r index.html config.json css js vendor templates assets _site/
           touch _site/.nojekyll
 
       - uses: actions/configure-pages@v6

@@ -31,6 +31,7 @@ index.html, css/, js/        the app
   js/template.js             Markdown template -> questionnaire model
   js/answers.js              answer model, YAML/JSON/Markdown export, import
   js/app.js                  views and routing
+assets/bright-mark.png       BRIGHT Biofoundry mark (favicon + header)
 vendor/js-yaml.mjs           js-yaml 4.2.0
 config.json                  site settings (title, organisation, contact email)
 templates/                   questionnaire templates (*.md) + generated index.json
