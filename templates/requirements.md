@@ -1,8 +1,7 @@
 ---
-id: requirements
 title: Project Data Strategy and Requirements
-description: Capture a project's data strategy, platform fit and prioritised requirements for the Informatics Platform team.
-order: 1
+description: Superseded by the needs statement + requirement specification pair. Kept so questionnaires started before the split still open.
+hidden: true
 ---
 
 # Project Data Strategy and Requirements

@@ -1,12 +1,12 @@
 [
   {
-    "id": "requirements",
-    "title": "Project Data Strategy and Requirements",
-    "description": "Capture a project's data strategy, platform fit and prioritised requirements for the Informatics Platform team.",
-    "file": "templates/requirements.md",
-    "version": "7ca7bc7e",
-    "sections": 6,
-    "questions": 19,
+    "id": "needs-statement-template",
+    "title": "Project Data Needs Statement",
+    "description": "Capture what a project team needs and why, in their own words, as the input to a requirement specification.",
+    "file": "templates/needs-statement-template.md",
+    "version": "d27aa71f",
+    "sections": 10,
+    "questions": 28,
     "order": 1
   }
 ]

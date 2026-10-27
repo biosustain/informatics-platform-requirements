@@ -1,8 +1,11 @@
 # Informatics Platform – Requirements Questionnaires
 
-A small static web app for collecting project requirements from clients of the BRIGHT
+A small static web app for collecting project data **needs** from clients of the BRIGHT
 Informatics Platform. Questionnaires are plain Markdown templates; clients answer them section by
 section, review their answers, and send the exported file to the team by email.
+
+The app is the first step of a two-stage workflow — see
+[From needs to requirements](#from-needs-to-requirements).
 
 - **Questionnaire style** – one step per `##` section, progress per section, autosave in the browser.
 - **Export and view** – YAML (canonical), JSON, or the Markdown template filled in. Any exported
@@ -34,7 +37,7 @@ index.html, css/, js/        the app
 assets/bright-mark.png       BRIGHT Biofoundry mark (favicon + header)
 vendor/js-yaml.mjs           js-yaml 4.2.0
 config.json                  site settings (title, organisation, contact email)
-templates/                   questionnaire templates (*.md) + generated index.json
+templates/                   needs statement (served) + specification shape + generated index.json
 scripts/build-template-index.mjs   regenerates templates/index.json
 .github/workflows/pages.yml  deploys the site to GitHub Pages
 LICENSE                      MIT
@@ -96,6 +99,29 @@ are **per browser and per device**: they are not shared between people, do not f
 machine, and are lost if the browser's site data is cleared. Export a copy to keep anything that
 matters.
 
+## From needs to requirements
+
+The app deliberately collects **needs**, not requirements. Asking a project team to write
+"the system shall…" produces solutions dressed as requirements; asking what goes wrong today and
+what they need to be able to do produces something a platform team can actually prioritise.
+
+```
+templates/needs-statement-template.md     the questionnaire the app serves
+          ↓  client fills it in, exports the filled Markdown
+    /needs-to-requirements                 agent skill, run by the platform team
+          ↓  writes a document against
+templates/requirement-specification-template.md
+```
+
+The hand-off is a file. Export the completed needs statement as **Markdown — filled template**,
+which carries the headings, tables and guidance as written, and give that to the skill. The YAML
+export is the canonical archive: it is what reopens in the app.
+
+The specification template is not a questionnaire — it is the shape of the skill's output, so it
+carries `hidden: true` and never appears on the start page. `requirements.md`, the single combined
+questionnaire this pair replaced, is hidden for the same reason but kept in the repository so
+questionnaires started before the split still open.
+
 ## Receiving answers
 
 The app never sends anything anywhere. When a client finishes, **Send your answers** downloads the
@@ -116,7 +142,7 @@ questions from a few conventions:
 
 | In the Markdown | In the app |
 | --- | --- |
-| Optional front matter: `id`, `title`, `description`, `order`, `version`, `hidden` | Start-page card and template identity |
+| Optional front matter: `title`, `description`, `order`, `hidden` | Start-page card and template identity |
 | `# Title` | Questionnaire title |
 | Text before the first `##` | Intro shown at the top of the first section |
 | `## Section` | One step of the questionnaire |
@@ -134,13 +160,22 @@ questions from a few conventions:
 | `- [ ] item` | Checkbox |
 | Anything else (paragraphs, quotes, lists, tables without prompts) | Guidance text, shown read-only |
 
+Two front-matter fields are better left unset. **`id`** defaults to the filename, so setting it
+only creates a second place to keep in sync. **`version`** defaults to a hash of the file's
+contents, which is what lets the app warn someone that a template changed under a draft they had
+already started; pinning it to a literal silently disables that warning, because the value then
+never changes when you edit the file.
+
+Set `hidden: true` on a Markdown file that lives in `templates/` but is not a questionnaire — a
+document the app should still be able to serve, but never offer on the start page.
+
 Answer keys come from the section headings and labels (`## Document Control` + `Project / campaign`
 → `document_control.project_campaign`). Renaming a heading or label therefore changes its key.
 Older answer files still open, but the renamed answers appear under "Other answers".
 
 To add a template:
 
-1. Copy `templates/requirements.md` to `templates/<id>.md` and edit it.
+1. Copy `templates/needs-statement-template.md` to `templates/<id>.md` and edit it.
 2. Run `node scripts/build-template-index.mjs` to preview locally (CI does this on deploy).
 3. Commit and push.
 
