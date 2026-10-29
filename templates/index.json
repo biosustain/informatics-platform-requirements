@@ -8,5 +8,15 @@
     "sections": 10,
     "questions": 28,
     "order": 1
+  },
+  {
+    "id": "requirement-specification-template",
+    "title": "Project Data Strategy and Requirement Specification",
+    "description": "Prioritised, testable requirements derived from a project needs statement, for assessment by the Informatics Platform team. Usually written by the needs-to-requirements skill; open it here to draft or refine one by hand.",
+    "file": "templates/requirement-specification-template.md",
+    "version": "590de720",
+    "sections": 7,
+    "questions": 28,
+    "order": 2
   }
 ]

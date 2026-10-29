@@ -2,8 +2,8 @@
 
 | File | Role |
 | --- | --- |
-| `needs-statement-template.md` | The questionnaire the app serves. Filled in by the project team. |
-| `requirement-specification-template.md` | The shape of the `/needs-to-requirements` output. `hidden: true` — written by the skill, never filled in through the app. |
+| `needs-statement-template.md` | The questionnaire sent to the project team. The input to the skill. |
+| `requirement-specification-template.md` | The shape of the `/needs-to-requirements` output, and also offered in the app so a specification can be drafted or refined by hand. |
 | `requirements.md` | The single combined questionnaire the pair above replaced. `hidden: true`, kept so drafts started before the split still open. |
 
 A file with `hidden: true` stays in this folder and is still served, but is left out of

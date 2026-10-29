@@ -117,10 +117,17 @@ The hand-off is a file. Export the completed needs statement as **Markdown — f
 which carries the headings, tables and guidance as written, and give that to the skill. The YAML
 export is the canonical archive: it is what reopens in the app.
 
-The specification template is not a questionnaire — it is the shape of the skill's output, so it
-carries `hidden: true` and never appears on the start page. `requirements.md`, the single combined
-questionnaire this pair replaced, is hidden for the same reason but kept in the repository so
-questionnaires started before the split still open.
+Both templates are offered on the start page. The needs statement is what you send a project team.
+The specification is normally written by the skill, but having it in the app lets the platform team
+draft or refine one by hand, and walk through it section by section with the project team.
+
+Note the asymmetry: the skill writes **Markdown**, and the app opens only its own YAML/JSON answer
+format. So a specification produced by the skill cannot be loaded back into the app — the template
+is there to be filled in, not to display the skill's output.
+
+`requirements.md`, the single combined questionnaire this pair replaced, carries `hidden: true`: it
+stays in the repository and is still served, so questionnaires started before the split still open,
+but it is not offered to anyone new.
 
 ## Receiving answers
 

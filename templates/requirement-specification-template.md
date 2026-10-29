@@ -1,7 +1,7 @@
 ---
 title: Project Data Strategy and Requirement Specification
-description: Prioritised, testable requirements derived from a project needs statement, for assessment by the Informatics Platform team. Written by the needs-to-requirements skill, not filled in through the app.
-hidden: true
+description: Prioritised, testable requirements derived from a project needs statement, for assessment by the Informatics Platform team. Usually written by the needs-to-requirements skill; open it here to draft or refine one by hand.
+order: 2
 ---
 
 # Project Data Strategy and Requirement Specification — [Project]
